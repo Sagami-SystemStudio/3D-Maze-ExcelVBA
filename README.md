@@ -1,4 +1,4 @@
-# ExcelVBA
+# 3D MAZE ExcelVBA
 Development using Excel VBA
 
 ## 3D Maze 仕様
