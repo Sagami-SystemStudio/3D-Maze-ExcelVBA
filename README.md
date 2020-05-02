@@ -38,3 +38,6 @@ Microsoft Office 2016
 
 ■ライセンス(license)
 パブリックドメイン(public domain)
+
+■掲載ブログ
+http://pg-sample.sagami-ss.net/?eid=54
