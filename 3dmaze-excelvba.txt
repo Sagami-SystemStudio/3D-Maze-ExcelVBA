@@ -1,0 +1,979 @@
+'//// ―――――――――――――――――――――――――――
+'////【VBA】オートシェイプで3D迷路を作ってみる（後編）
+'//// ソース完全版
+'//// 2018年8月15日
+'//// (C)2015-2018 Sagami-SystemStudio
+'//// ―――――――――――――――――――――――――――
+
+
+'//セルの幅と高さ
+Private Const D_WIDTH# = 3#
+Private Const D_HEIGHT# = 17#
+'//3D迷路エリアのセル数(縦横共通)
+Private Const D_MAPCELL = 64
+
+'//マップ格納配列(7行9列)
+'// マップ情報(9：壁 8：描画範囲外(壁) 7：描画範囲外(通路) 0：通路 1：スタート 2：ゴール)
+Type sctmap
+    info As Integer   'マップ情報
+    span As Integer   'マップを描画するときのセル幅(高さは中央の幅と同じ)
+    twidth As Integer '台形を描画するときの幅
+End Type
+Private map(7, 8) As sctmap
+
+'//描画する四角形の位置を格納
+Type sctrect
+    NW(1) As Integer
+    SW(1) As Integer
+    SE(1) As Integer
+    NE(1) As Integer
+End Type
+
+'//初期化完了フラグ
+Private bSetting As Boolean
+'//全体マップ格納配列
+Private allmap(19, 19) As Integer
+'//現在位置を格納(全体マップ内の絶対座標)
+Private gyoPos As Integer
+Private clmPos As Integer
+Private old_gyoPos As Integer
+Private old_clmPos As Integer
+'//向いている方向("N"：北/"E"：東/"S"：南/"W"：西)
+Private cos As String
+
+'/*********************************************
+'/ シートを初期化する
+'/*********************************************
+Public Sub シート初期化()
+    Dim i As Integer
+
+    '//確認メッセージ
+    stname = ActiveSheet.Name
+    iret = MsgBox("ブック： " & ThisWorkbook.Name & vbCrLf & _
+        "シート： " & stname & vbCrLf & "3D迷路表示用に初期化してもよろしいですか？" & _
+        vbCrLf & "（シートのすべてのセル情報がクリアされます）", _
+        vbYesNo + vbExclamation, "3DマップMacro")
+    If iret = vbNo Then Exit Sub
+    
+    '//シートをクリアする
+    シートクリア stname
+    
+    '//3Dマップ表示エリア(64×62)を生成
+    For i = 2 To D_MAPCELL + 1
+        Cells(1, i) = i - 1
+        Cells(2 + D_MAPCELL, i) = i - 1
+        Cells(i, 1) = i - 1
+        Cells(i, 2 + D_MAPCELL) = i - 1
+    Next
+   
+    Range("B1:E1").Interior.Color = RGB(255, 217, 102)
+    Range("A2:A5").Interior.Color = RGB(255, 217, 102)
+    Range("N1:U1").Interior.Color = RGB(255, 217, 102)
+    Range("A14:A21").Interior.Color = RGB(255, 217, 102)
+    Range("AD1:AK1").Interior.Color = RGB(255, 217, 102)
+    Range("A30:A37").Interior.Color = RGB(255, 217, 102)
+    Range("AT1:BA1").Interior.Color = RGB(255, 217, 102)
+    Range("A46:A53").Interior.Color = RGB(255, 217, 102)
+    Range("BJ1:BM1").Interior.Color = RGB(255, 217, 102)
+    Range("A62:A65").Interior.Color = RGB(255, 217, 102)
+
+    Range("B" & CStr(D_MAPCELL + 2) & ":E" & CStr(C_MAPCELL + 2)).Interior.Color = RGB(255, 217, 102)
+    Range("BN2:BN5").Interior.Color = RGB(255, 217, 102)
+    Range("N" & CStr(D_MAPCELL + 2) & ":U" & CStr(C_MAPCELL + 2)).Interior.Color = RGB(255, 217, 102)
+    Range("BN14:BN21").Interior.Color = RGB(255, 217, 102)
+    Range("AD" & CStr(D_MAPCELL + 2) & ":AK" & CStr(C_MAPCELL + 2)).Interior.Color = RGB(255, 217, 102)
+    Range("BN30:BN37").Interior.Color = RGB(255, 217, 102)
+    Range("AT" & CStr(D_MAPCELL + 2) & ":BA" & CStr(C_MAPCELL + 2)).Interior.Color = RGB(255, 217, 102)
+    Range("BN46:BN53").Interior.Color = RGB(255, 217, 102)
+    Range("BJ" & CStr(D_MAPCELL + 2) & ":BM" & CStr(C_MAPCELL + 2)).Interior.Color = RGB(255, 217, 102)
+    Range("BN62:BN65").Interior.Color = RGB(255, 217, 102)
+
+    '//外枠罫線をセット
+    With Range(Cells(2, 2), Cells(D_MAPCELL + 1, D_MAPCELL + 1))
+        With .Borders(xlEdgeTop)
+            .LineStyle = xlContinuous
+            .Weight = xlThick
+            .Color = RGB(0, 0, 0)
+        End With
+        With .Borders(xlEdgeBottom)
+            .LineStyle = xlContinuous
+            .Weight = xlThick
+            .Color = RGB(0, 0, 0)
+        End With
+        With .Borders(xlEdgeLeft)
+            .LineStyle = xlContinuous
+            .Weight = xlThick
+            .Color = RGB(0, 0, 0)
+        End With
+        With .Borders(xlEdgeRight)
+            .LineStyle = xlContinuous
+            .Weight = xlThick
+            .Color = RGB(0, 0, 0)
+        End With
+    End With
+    
+    '//3D迷路エリアの初期設定
+    Range("B2:BM8").Interior.Color = RGB(240, 240, 240)
+    Range("B9:BM14").Interior.Color = RGB(214, 214, 214)
+    Range("B15:BM19").Interior.Color = RGB(188, 188, 188)
+    Range("B20:BM23").Interior.Color = RGB(162, 162, 162)
+    Range("B24:BM26").Interior.Color = RGB(136, 136, 136)
+    Range("B27:BM28").Interior.Color = RGB(110, 110, 110)
+    Range("B29:BM29").Interior.Color = RGB(84, 84, 84)
+    Range("B30:BM37").Interior.Color = RGB(58, 58, 58)
+    Range("B38:BM65").Interior.Color = RGB(248, 203, 173)
+    
+    '//セル幅と台形の幅(システムで不変)をセット
+    SetMapSpanAndTrapezoidalWidth
+    
+    '//全体マップ表示
+    If Not 全体マップ表示 Then
+        MsgBox "全体マップの取得に失敗しました", vbOKOnly + vbExclamation, "3DマップMacro"
+        Exit Sub
+    End If
+    
+    '//マップ情報(初期表示)を取得
+    If Not マップデータ取得 Then
+        MsgBox "マップデータの取得に失敗しました", vbOKOnly + vbExclamation, "3DマップMacro"
+        Exit Sub
+    End If
+    
+    '//描画範囲表示
+    マップガイドエリア初期化
+    
+    '//3D迷路描画(初期表示)
+    迷路描画処理
+     
+    '//サンプル表示用のボタンを追加
+    Dim cw As Double, ch As Double
+    '//セル1つの幅と高さ
+    cw = Range("A1").Width
+    ch = Range("A1").Height
+    
+    Dim obj As Object
+    For Each obj In ActiveSheet.Buttons
+        If obj.OnAction = "" Then obj.Delete
+    Next
+    
+    '//上(↑)ボタン
+    With ActiveSheet.Buttons.Add(cw * (D_MAPCELL + 9), ch * 44, cw * 10, ch * 5)
+        .Caption = "前に進む (↑)"
+        .Font.Size = 32
+        .Font.Name = "Yu Gothic"
+        .Font.Bold = True
+        .OnAction = "CmdBtn1_Click"
+    End With
+    '//左(←)ボタン
+    With ActiveSheet.Buttons.Add(cw * (D_MAPCELL + 3), ch * 52, cw * 10, ch * 5)
+        .Caption = "(←) 左向く  "
+        .Font.Size = 32
+        .Font.Name = "Yu Gothic"
+        .Font.Bold = True
+        .OnAction = "CmdBtn2_Click"
+    End With
+    '//右(→)ボタン
+    With ActiveSheet.Buttons.Add(cw * (D_MAPCELL + 15), ch * 52, cw * 10, ch * 5)
+        .Caption = "  右向く (→)"
+        .Font.Size = 32
+        .Font.Name = "Yu Gothic"
+        .Font.Bold = True
+        .OnAction = "CmdBtn3_Click"
+    End With
+    
+    '//初期化ボタン
+    With ActiveSheet.Buttons.Add(cw * (D_MAPCELL + 10), ch * 60, cw * 8, ch * 5)
+        .Caption = "最初からやり直す"
+        .Font.Size = 20
+        .Font.Name = "Yu Gothic"
+        .OnAction = "CmdBtn4_Click"
+    End With
+    
+    '//初期化完了フラグOn
+    bSetting = True
+End Sub
+
+'/*********************************************
+'/ 迷路描画
+'/ マップ情報に従い迷路を描画する
+'/*********************************************
+Private Sub 迷路描画処理()
+    On Error GoTo Error_MapView
+    
+    Dim i As Integer, j As Integer
+    Dim srect() As sctrect
+    
+    Application.ScreenUpdating = False
+    For i = 0 To UBound(map, 1)
+        For j = 0 To UBound(map, 2)
+            '描画範囲外(8：壁 7：通路)はスキップ
+            If map(i, j).info = 8 Or map(i, j).info = 7 Then
+                GoTo nextrec
+            End If
+            
+            '壁(map.info=9)、全体マップ範囲外(99)のときの描画処理
+            If map(i, j).info = 9 Or map(i, j).info = 99 Then
+                If (i <> 0) Then
+                    '台形描画
+                    図形座標取得 i, j, "Trapezoid", srect
+                    図形描画 srect, map(i, j).info
+                End If
+                                
+                'ゴールにたどり着いたら全体マップ範囲外中央の図形を描画しない
+                If allmap(gyoPos, clmPos) = 2 And j = 4 Then
+                    '描画なし
+                Else
+                    '台形を描画してから手前の壁を描画する
+                    図形座標取得 i, j, "Rectangle", srect
+                    図形描画 srect, map(i, j).info
+                End If
+                GoTo nextrec
+            End If
+            
+            '台形描画
+            '最後尾(i=0)は台形描画なし
+            If i <> 0 Then
+                '中央より左(j < 4)のときは左が壁(info=9or8)なら左詰めで描画
+                '中央より右(j > 4)のときは右が壁(info=9or8)なら右詰めで描画
+                '中央のときは左右の壁判定を行う
+                If ((j < 4) And (map(i, j - 1).info > 7)) Or _
+                   ((j > 4) And (map(i, j + 1).info > 7)) Or _
+                   ((j = 4) And (map(i, j - 1).info > 7 Or map(i, j + 1).info > 7)) Then
+                   図形座標取得 i, j, "Trapezoid", srect
+                   図形描画 srect, map(i, j).info
+                End If
+            End If
+            
+            '通路で前面が壁の場合は前面壁の後壁を描画
+            '壁の時に後ろ壁を表示する方法だとZOrderがおかしいケースが発生するのでこちらの方法に変更した
+            If (i < UBound(map, 1)) Then
+                If (map(i, j).info < 7) And (map(i + 1, j).info > 7) Then
+                   図形座標取得 i, j, "Rectangle", srect
+                   図形描画 srect, map(i, j).info
+                End If
+            End If
+nextrec:
+        Next
+    Next
+
+Error_MapView:
+    Application.ScreenUpdating = True
+End Sub
+
+'/*********************************************
+'/ 図形座標取得
+'/ 現在位置に描画する四角形の座標を取得
+'/ gyo：現在位置(縦)
+'/ clm：現在位置(横)
+'/ kind："Rectangle"：四角形 "Trapezoid"：台形
+'/ srect：描画座標を格納(中央のとき左右の台形を描画するときは配列要素を追加する)
+'/*********************************************
+Private Sub 図形座標取得(ByVal gyo As Integer, ByVal clm As Integer, _
+                            ByVal kind As String, ByRef srect() As sctrect)
+    Dim i As Integer, j As Integer
+    Dim tmpW As Integer, tmpH As Integer, tmpL As Integer, tmpT As Integer
+    Dim idx As Integer
+    '//座標格納構造体配列を初期化
+    ReDim srect(1)
+    For i = 0 To 1
+        For j = 0 To 1
+            srect(i).NW(j) = 0
+            srect(i).SW(j) = 0
+            srect(i).SE(j) = 0
+            srect(i).NE(j) = 0
+        Next
+    Next
+    
+    '//図形の幅と高さを取得(高さは中央の横幅と同じ)
+    tmpW = map(gyo, clm).span
+    tmpH = map(gyo, 4).span
+    '//図形の開始位置(Left位置)を取得
+    tmpL = 1
+    For j = 0 To clm - 1
+        tmpL = tmpL + map(gyo, j).span
+    Next
+    '//図形の開始位置(Top位置)を取得
+    tmpT = 1 + ((64 - map(gyo, 4).span) / 2)
+    
+    idx = 0
+    Select Case kind
+    Case "Rectangle"
+        srect(0).NW(0) = tmpT
+        srect(0).NW(1) = tmpL
+        srect(0).SW(0) = tmpT + tmpH
+        srect(0).SW(1) = tmpL
+        srect(0).SE(0) = tmpT + tmpH
+        srect(0).SE(1) = tmpL + tmpW
+        srect(0).NE(0) = tmpT
+        srect(0).NE(1) = tmpL + tmpW
+    Case "Trapezoid"
+        '台形の幅(map.twidth)がセットされていなければ終了
+        If map(gyo, clm).twidth = 0 Then Exit Sub
+        '中央より左、または中央左側、または壁のとき
+        If (clm < 4) Or (clm = 4 And map(gyo, clm - 1).info > 7) Or _
+                            (clm = 4 And map(gyo, clm).info = 9) Then
+            '右辺が短いのでSEとNEが変更となる
+            srect(0).NW(0) = tmpT
+            srect(0).NW(1) = tmpL
+            srect(0).SW(0) = tmpT + tmpH
+            srect(0).SW(1) = tmpL
+            srect(0).SE(0) = tmpT + tmpH - gyo
+            srect(0).SE(1) = tmpL + map(gyo, clm).twidth
+            srect(0).NE(0) = tmpT + gyo
+            srect(0).NE(1) = tmpL + map(gyo, clm).twidth
+            If clm = 4 Then idx = idx + 1
+        End If
+        '中央より右、または中央右側、または壁のとき
+        If (clm > 4) Or (clm = 4 And map(gyo, clm + 1).info > 7) Or _
+                            (clm = 4 And map(gyo, clm).info = 9) Then
+            '左辺が短いのでNWとSWが変更となる(右詰めで描画)
+            srect(idx).NW(0) = tmpT + gyo
+            srect(idx).NW(1) = tmpL + (tmpW - map(gyo, clm).twidth)
+            srect(idx).SW(0) = tmpT + tmpH - gyo
+            srect(idx).SW(1) = tmpL + (tmpW - map(gyo, clm).twidth)
+            srect(idx).SE(0) = tmpT + tmpH
+            srect(idx).SE(1) = tmpL + tmpW
+            srect(idx).NE(0) = tmpT
+            srect(idx).NE(1) = tmpL + tmpW
+            Exit Sub
+        End If
+    End Select
+End Sub
+
+'/*********************************************
+'/ 図形描画
+'/ 四角形の座標を元にオートシェイプを描画
+'/ srect：描画座標を格納(中央のとき左右の台形を描画するケースがある)
+'/ mapinfo：マップ情報
+'/*********************************************
+Private Sub 図形描画(ByRef srect() As sctrect, ByVal mapinfo As Integer)
+    Dim i As Integer
+    Dim cw As Double, ch As Double
+    'セル1つの幅と高さ
+    cw = Range("A1").Width
+    ch = Range("A1").Height
+    
+    For i = 0 To UBound(srect)
+        '座標が取得できていないとき(中央以外はインデックス1はない)描画しない
+        'NWで判定する
+        If srect(i).NW(0) = 0 Then Exit For
+        
+        With ActiveSheet.Shapes.BuildFreeform(msoEditingAuto, cw * srect(i).NW(1), ch * srect(i).NW(0))
+            .AddNodes msoSegmentLine, msoEditingAuto, cw * srect(i).SW(1), ch * srect(i).SW(0)
+            .AddNodes msoSegmentLine, msoEditingAuto, cw * srect(i).SE(1), ch * srect(i).SE(0)
+            .AddNodes msoSegmentLine, msoEditingAuto, cw * srect(i).NE(1), ch * srect(i).NE(0)
+            .AddNodes msoSegmentLine, msoEditingAuto, cw * srect(i).NW(1), ch * srect(i).NW(0)
+            With .ConvertToShape
+                .Line.Weight = 8
+                '//全体マップ範囲外(99)、ゴール(2)、通常描画の色を分岐
+                If mapinfo = 99 Then
+                    .Line.ForeColor.RGB = RGB(58, 58, 58)
+                    '//四角形と台形で色を少し変える
+                    If srect(i).NW(0) = srect(i).NE(0) Then
+                        .Fill.ForeColor.RGB = RGB(84, 84, 84)
+                    Else
+                        .Fill.ForeColor.RGB = RGB(110, 110, 110)
+                    End If
+                    .Fill.Transparency = 0.1
+                ElseIf mapinfo = 2 Then
+                     .Line.ForeColor.RGB = RGB(223, 34, 19)
+                    '//四角形と台形で色を少し変える
+                    If srect(i).NW(0) = srect(i).NE(0) Then
+                        .Fill.ForeColor.RGB = RGB(255, 153, 255)
+                    Else
+                        .Fill.ForeColor.RGB = RGB(255, 153, 255)
+                    End If
+                    .Fill.Transparency = 0.3
+                Else
+                    .Line.ForeColor.RGB = RGB(197, 90, 17)
+                    '//四角形と台形で色を少し変える
+                    If srect(i).NW(0) = srect(i).NE(0) Then
+                        .Fill.ForeColor.RGB = RGB(191, 144, 0)
+                    Else
+                        .Fill.ForeColor.RGB = RGB(255, 224, 125)
+                    End If
+                    .Fill.Transparency = 0.3
+                End If
+
+            End With
+        End With
+    Next
+
+End Sub
+
+'/*********************************************
+'/ マップデータを取得する
+'/ マップ情報(9：壁 8：描画範囲外(壁) 7：描画範囲外(通路) 0：通路 1：スタート 2：ゴール)
+'/*********************************************
+Private Function マップデータ取得() As Boolean
+    Dim i As Integer, j As Integer
+    Dim stgyo As Integer, stclm As Integer
+    On Error GoTo Error_Map
+    
+    マップデータ取得 = False
+    '//map配列を全体マップ範囲外(info=99)で初期化
+    For i = 0 To UBound(map, 1)
+        For j = 0 To UBound(map, 2)
+            map(i, j).info = 99
+        Next
+    Next
+    
+    '//現在位置と向きからmap.infoエリアを取得する
+    '//描画可能範囲は□の位置、■は描画しない範囲となる
+    '//□□□□□□□□□
+    '//■□□□□□□□■
+    '//■□□□□□□□■
+    '//■■□□□□□■■
+    '//■■■□□□■■■
+    '//■■■□□□■■■
+    '//■■■□□□■■■
+    '//■■■■□■■■■
+    Select Case cos
+        Case "N"
+            stgyo = gyoPos - 7
+            For i = 0 To UBound(map, 1) Step 1
+                stclm = clmPos - 4
+                For j = 0 To UBound(map, 2) Step 1
+                    '全体マップ範囲外(99)は変更しない
+                    If stclm >= 0 And stclm <= UBound(allmap, 2) And _
+                        stgyo >= 0 And stgyo <= UBound(allmap, 1) Then
+                        map(i, j).info = allmap(stgyo, stclm)
+                    End If
+                    stclm = stclm + 1
+                Next
+                stgyo = stgyo + 1
+            Next
+        Case "E"
+            stclm = clmPos + 7
+            For i = 0 To UBound(map, 1) Step 1
+                stgyo = gyoPos - 4
+                For j = 0 To UBound(map, 2) Step 1
+                    '全体マップ範囲外(99)は変更しない
+                    If stclm >= 0 And stclm <= UBound(allmap, 2) And _
+                        stgyo >= 0 And stgyo <= UBound(allmap, 1) Then
+                        map(i, j).info = allmap(stgyo, stclm)
+                    End If
+                    stgyo = stgyo + 1
+                Next
+                stclm = stclm - 1
+            Next
+        Case "S"
+            stgyo = gyoPos + 7
+            For i = 0 To UBound(map, 1) Step 1
+                stclm = clmPos + 4
+                For j = 0 To UBound(map, 2) Step 1
+                    '全体マップ範囲外(99)は変更しない
+                    If stclm >= 0 And stclm <= UBound(allmap, 2) And _
+                        stgyo >= 0 And stgyo <= UBound(allmap, 1) Then
+                        map(i, j).info = allmap(stgyo, stclm)
+                    End If
+                    stclm = stclm - 1
+                Next
+                stgyo = stgyo - 1
+            Next
+        Case "W"
+            stclm = clmPos - 7
+            For i = 0 To UBound(map, 1) Step 1
+                stgyo = gyoPos + 4
+                For j = 0 To UBound(map, 2) Step 1
+                    '全体マップ範囲外(99)は変更しない
+                    If stclm >= 0 And stclm <= UBound(allmap, 2) And _
+                        stgyo >= 0 And stgyo <= UBound(allmap, 1) Then
+                        map(i, j).info = allmap(stgyo, stclm)
+                    End If
+                    stgyo = stgyo - 1
+                Next
+                stclm = stclm + 1
+            Next
+        Case Else
+            Exit Function
+    End Select
+    
+    '//描画範囲外のマップデータをセット
+    For i = 0 To UBound(map, 1)
+        For j = 0 To UBound(map, 2)
+            '行が可能範囲外なら強制的に描画範囲外の壁=8、描画範囲外の通路=7をセット
+            '("■"の箇所は強制的に8or7をセット)
+            GetMapValue i, j
+        Next
+    Next
+    マップデータ取得 = True
+       
+Error_Map:
+    Exit Function
+End Function
+
+'/*********************************************
+'/ マップデータの描画可能範囲を判定する
+'/*********************************************
+Private Sub GetMapValue( _
+    ByVal gyo As Integer, ByVal clm As Integer)
+       
+    '//位置が描画可能範囲外のとき
+    '//元が壁なら強制的に描画範囲外=8をセット
+    '//元が通路(9以外)なら描画範囲外=7をセット
+    '("■"の箇所は強制的に8または7をセット)
+    outrng = False
+    If (gyo = 1 Or gyo = 2) And (clm = 0 Or clm = 8) Then
+        outrng = True
+    ElseIf gyo = 3 And (clm < 2 Or clm > 6) Then
+        outrng = True
+    ElseIf (gyo > 3 And gyo < 7) And (clm < 3 Or clm > 5) Then
+        outrng = True
+    ElseIf gyo = 7 And clm <> 4 Then
+        outrng = True
+    End If
+    
+    If outrng = True Then
+        If map(gyo, clm).info = 99 Then
+            '全体マップの範囲外は更新しない(初期値99のままとする)
+        ElseIf map(gyo, clm).info = 9 Then
+            map(gyo, clm).info = 8
+        Else
+            map(gyo, clm).info = 7
+        End If
+    Else
+        '変更しない
+    End If
+End Sub
+
+'/*********************************************
+'/ 全体マップ表示
+'/ 全体マップサイズ：20セル×20セル
+'/ ＜エラー条件＞
+'/ (1)マップ情報が7以上(9を除く)のとき
+'/ (2)外周が9(壁)、1(スタート位置)、2(ゴール)のいずれでもない
+'/ (3)マップ情報としてスタート(info=1)とゴール(info=2)が1箇所ではない
+'/ (4)スタートとゴールが四隅にある
+'/*********************************************
+Private Function 全体マップ表示() As Boolean
+    Dim i As Integer, j As Integer
+    Dim wkmap As Variant
+    Dim wkstr() As String
+    Dim stcnt As Integer, edcnt As Integer
+    全体マップ表示 = False
+    
+    wkmap = Array("9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9", _
+                "9,9,9,0,0,0,9,0,0,0,0,0,9,0,9,9,9,9,0,9", _
+                "9,0,0,0,9,9,9,9,0,9,9,9,9,0,0,0,0,0,0,9", _
+                "9,0,9,0,9,9,0,0,0,0,0,0,0,0,9,0,9,9,9,9", _
+                "9,0,9,0,9,9,0,9,9,9,9,9,9,0,9,0,9,0,0,2", _
+                "9,9,9,0,9,9,0,9,0,0,0,0,9,0,9,0,9,0,9,9", _
+                "9,9,0,0,0,0,0,9,9,0,9,9,9,0,9,0,0,0,9,9", _
+                "9,9,9,9,0,9,9,9,9,0,9,0,0,0,9,0,9,0,0,9", _
+                "9,0,0,0,0,0,0,0,0,0,9,0,9,0,9,9,9,9,9,9", _
+                "9,0,9,9,9,9,9,9,9,0,9,0,9,0,9,9,9,9,0,9", _
+                "9,0,9,9,0,0,0,0,0,0,9,0,9,0,0,0,0,0,0,9", _
+                "9,0,0,9,0,9,9,9,0,9,9,9,9,0,9,9,9,9,0,9", _
+                "9,0,9,9,0,0,0,9,0,0,0,9,9,0,9,0,9,9,0,9", _
+                "9,0,9,9,9,0,9,9,0,9,0,9,0,0,0,0,0,0,9,9", _
+                "9,0,9,0,0,0,9,0,0,9,9,9,0,9,9,0,9,9,9,9", _
+                "9,0,9,9,9,0,9,0,0,0,0,0,0,9,9,0,0,0,0,9", _
+                "9,0,0,9,9,0,0,0,9,9,9,9,0,9,9,0,9,9,0,9", _
+                "9,9,0,0,0,0,9,0,9,9,9,9,0,9,9,9,9,9,0,9", _
+                "9,9,9,0,9,0,9,0,0,0,0,0,0,0,0,0,0,0,0,9", _
+                "9,9,9,9,9,9,9,1,9,9,9,9,9,9,9,9,9,9,9,9")
+    
+    '//全体マップを初期化
+    For i = 0 To UBound(allmap, 1)
+        For j = 0 To UBound(allmap, 2)
+            allmap(i, j) = 0
+        Next
+    Next
+    gyoPos = 0 '行位置
+    clmPos = 0 '列位置
+    cos = "" '向いている方向
+    old_gyoPos = 0 '1つ前の行位置
+    old_clmPos = 0 '1つ前の列位置
+    
+    '//全体マップを格納
+    stcnt = 0
+    edcnt = 0
+    For i = 0 To UBound(allmap, 1)
+        '1行分のデータを取得
+        wkstr = Split(wkmap(i), ",")
+        For j = 0 To UBound(allmap, 2)
+            allmap(i, j) = CInt(wkstr(j))
+            If allmap(i, j) = 1 Then stcnt = stcnt + 1
+            If allmap(i, j) = 2 Then edcnt = edcnt + 1
+            'マップ情報が7以上(9を除く)のときエラー
+            If allmap(i, j) > 6 And allmap(i, j) <> 9 Then Exit Function
+            '外周が1、2、9いずれでもない
+            If (i = 0 Or i = UBound(allmap, 1)) Or _
+                (j = 0 Or j = UBound(allmap, 2)) Then
+                If allmap(i, j) <> 9 And allmap(i, j) <> 1 And allmap(i, j) <> 2 Then Exit Function
+            End If
+            
+            '初期値として現在位置にスタート位置をセット
+            If allmap(i, j) = 1 Then
+                gyoPos = i
+                clmPos = j
+            End If
+        Next
+    Next
+    '//シートに全体マップを描画する
+    全体マップ描画
+    '//スタート位置、終了位置が1箇所ではないときエラー
+    If stcnt <> 1 Or edcnt <> 1 Then Exit Function
+    '//四隅が9(壁)ではないときエラー
+    If allmap(0, 0) <> 9 Or allmap(0, UBound(allmap, 2)) <> 9 Or _
+        allmap(UBound(allmap, 1), 0) <> 9 Or allmap(UBound(allmap, 1), UBound(allmap, 2)) <> 9 Then
+        Exit Function
+    End If
+    '//向いている方向の初期値をセット
+    If gyoPos = 0 Then cos = "S"
+    If gyoPos = UBound(allmap, 1) Then cos = "N"
+    If clmPos = 0 Then cos = "E"
+    If clmPos = UBound(allmap, 2) Then cos = "W"
+    If cos = "" Then Exit Function
+    
+    全体マップ表示 = True
+End Function
+
+'/*********************************************
+'/ 全体マップ描画
+'/*********************************************
+Private Sub 全体マップ描画()
+    Dim i As Integer, j As Integer
+    
+    For i = 0 To UBound(allmap, 1)
+        For j = 0 To UBound(allmap, 2)
+            With Range(Cells(2 + i, D_MAPCELL + 6 + j), Cells(2 + i, D_MAPCELL + 6 + j))
+                If allmap(i, j) = 9 Then
+                    .Interior.Color = RGB(142, 169, 219)
+                Else
+                    .Interior.Color = RGB(255, 255, 255)
+                End If
+                .Value = CStr(allmap(i, j))
+                .Font.Color = RGB(0, 0, 0)
+                .Font.Size = 8
+                '罫線をセット
+                With .Borders
+                    .LineStyle = xlDash
+                    .Weight = xlThin
+                    .Color = RGB(110, 110, 110)
+                End With
+                'スタート位置、終了位置には"●"をセット
+                If allmap(i, j) = 1 Or allmap(i, j) = 2 Then
+                    .Value = "●"
+                    .Font.Color = RGB(255, 0, 0)
+                    .Font.Size = 11
+                End If
+            End With
+        Next
+    Next
+End Sub
+
+'/*********************************************
+'/ マップガイドエリア初期化
+'/ 4セルを1マスとして表示(大きいほうが見やすいため)
+'/*********************************************
+Private Sub マップガイドエリア初期化()
+    On Error GoTo Error_MapGuide
+    Dim i As Integer, j As Integer
+    Dim gyo As Integer, clm As Integer
+    
+    Application.ScreenUpdating = False
+    For i = 0 To UBound(map, 1)
+        '行描画時の行番号、列番号の初期値
+        gyo = (i * 2) + 25
+        clm = D_MAPCELL + 6
+        For j = 0 To UBound(map, 2)
+            With Range(Cells(gyo, clm), Cells(gyo + 1, clm + 1))
+                .Merge
+                If map(i, j).info = 99 Then
+                    .Interior.Color = RGB(58, 58, 58)
+                ElseIf map(i, j).info = 9 Then
+                    .Interior.Color = RGB(142, 169, 219)
+                ElseIf map(i, j).info = 8 Then
+                    .Interior.Color = RGB(110, 110, 110)
+                ElseIf map(i, j).info = 7 Then
+                    .Interior.Color = RGB(162, 162, 162)
+                Else
+                    .Interior.Color = RGB(255, 255, 255)
+                End If
+                .Value = map(i, j).info
+                '罫線をセット
+                With .Borders
+                    .LineStyle = xlDash
+                    .Weight = xlThin
+                    .Color = RGB(110, 110, 110)
+                End With
+                '最前面の中央には"▲"をセット
+                If i = 7 And j = 4 Then
+                    .Value = "▲"
+                    .Font.Color = RGB(255, 0, 0)
+                    .Font.Size = 20
+                    .Interior.Color = RGB(255, 255, 255)
+                End If
+            End With
+
+            clm = clm + 2
+        Next
+    Next
+Error_MapGuide:
+    Application.ScreenUpdating = True
+End Sub
+
+'/*********************************************
+'/ シートをクリアする
+'/ stname：クリア対象シート名
+'/*********************************************
+Private Sub シートクリア(ByVal stname As String)
+    Dim sp As Variant
+      
+    '//シート選択
+    ThisWorkbook.Sheets(stname).Activate
+    '//セルを初期化する
+    Cells.Select
+    Selection.UnMerge
+    Selection.Clear
+    Selection.ColumnWidth = D_WIDTH
+    Selection.RowHeight = D_HEIGHT
+    Selection.Font.Name = "Meiryo UI"
+    Selection.Font.Size = 8
+    Selection.Borders.LineStyle = False
+    '//中央揃えを設定
+    Selection.HorizontalAlignment = xlCenter
+    Selection.VerticalAlignment = xlCenter
+    '//セルの折り返しを解除
+    Selection.WrapText = False
+    
+    '//オートシェイプを削除する
+    For Each sp In ActiveSheet.Shapes
+        sp.Delete
+    Next
+    
+    ActiveWindow.Zoom = 50
+    Range("A1").Select
+End Sub
+
+'/*********************************************
+'/ マップを描画するときのセル幅と
+'/ 台形を描画するときの幅を取得
+'/ span：セル幅
+'/ twidth：台形の幅
+'/*********************************************
+Private Sub SetMapSpanAndTrapezoidalWidth()
+    Dim wkspan As Variant, wkwid As Variant
+    Dim strspan() As String, strwid() As String
+    Dim i As Integer, j As Integer
+    
+    '//初期化
+    For i = 0 To UBound(map, 1)
+        For j = 0 To UBound(map, 2)
+            map(i, j).span = 0
+            map(i, j).twidth = 0
+        Next
+    Next
+    
+    wkspan = Array( _
+        "4,8,8,8,8,8,8,8,4", _
+        "0,9,9,9,10,9,9,9,0", _
+        "0,3,11,11,14,11,11,3,0", _
+        "0,0,8,14,20,14,8,0,0", _
+        "0,0,0,18,28,18,0,0,0", _
+        "0,0,0,13,38,13,0,0,0", _
+        "0,0,0,7,50,7,0,0,0", _
+        "0,0,0,0,64,0,0,0,0")
+    wkwid = Array( _
+        "0,0,0,0,0,0,0,0,0", _
+        "0,4,3,2,1,2,3,4,0", _
+        "0,0,6,4,2,4,6,0,0", _
+        "0,0,3,6,3,6,3,0,0", _
+        "0,0,0,8,4,8,0,0,0", _
+        "0,0,0,0,5,0,0,0,0", _
+        "0,0,0,0,6,0,0,0,0", _
+        "0,0,0,0,7,0,0,0,0")
+    For i = 0 To UBound(map, 1)
+        strspan = Split(wkspan(i), ",")
+        strwid = Split(wkwid(i), ",")
+        For j = 0 To UBound(map, 2)
+            map(i, j).span = CInt(strspan(j))
+            map(i, j).twidth = CInt(strwid(j))
+        Next
+    Next
+End Sub
+
+'/*********************************************
+'/ 初期化確認
+'/*********************************************
+Private Function InitCheck() As Boolean
+    Dim iret As Integer
+    If Not bSetting Then
+        MsgBox "3D迷路が初期化されていません", vbOKOnly + vbExclamation, "3DマップMacro"
+    End If
+    
+    InitCheck = bSetting
+End Function
+
+'/*********************************************
+'/ 描画更新のためすべてのオーシェイプを削除する
+'/*********************************************
+Private Sub DeleteShapes()
+    For Each sp In ActiveSheet.Shapes
+        If sp.Type = msoFormControl Then GoTo nextrec
+        sp.Delete
+nextrec:
+    Next
+End Sub
+
+'/*********************************************
+'/ 迷路描画更新(3D迷路表示エリア更新)
+'/*********************************************
+Private Sub コマンドボタン迷路描画更新()
+    If Not マップデータ取得 Then
+        MsgBox "マップデータの取得に失敗しました", vbOKOnly + vbExclamation, "3DマップMacro"
+        Exit Sub
+    End If
+     
+    '//描画範囲表示
+    マップガイドエリア初期化
+    
+    '//オートシェイプ削除
+    DeleteShapes
+    
+    '//3D迷路描画(初期表示)
+    迷路描画処理
+End Sub
+
+'/*********************************************
+'/ コマンドボタンクリックで表示を切り替え（上）
+'/*********************************************
+Private Sub CmdBtn1_Click()
+       
+    '//初期化チェック
+    If Not InitCheck Then Exit Sub
+       
+    '//前へ進む
+    '//表示中マップ(map)の手前のブロックが壁なら進めない
+    If map(UBound(map, 1) - 1, 4).info = 9 Or _
+        map(UBound(map, 1) - 1, 4).info = 99 Then Exit Sub
+    
+    '//移動前に現在位置を保持
+    old_gyoPos = gyoPos
+    old_clmPos = clmPos
+    
+    '//マップ情報を取得
+    Select Case cos
+    Case "N"
+        gyoPos = gyoPos - 1
+    Case "E"
+        clmPos = clmPos + 1
+    Case "S"
+        gyoPos = gyoPos + 1
+    Case "W"
+        clmPos = clmPos - 1
+    Case Else
+        Exit Sub
+    End Select
+    
+    '//全体マップの位置を更新
+    全体マップの現在位置更新
+       
+    '//3D迷路表示エリアの更新
+    コマンドボタン迷路描画更新
+    
+    '//ゴールにたどりついたら背景色を変更
+    If allmap(gyoPos, clmPos) = 2 Then
+        CongratulationsView
+        MsgBox "☆☆☆☆☆☆☆☆☆☆☆☆☆☆☆☆☆☆☆☆☆" & vbCrLf & _
+                "―― Congratulations on your success. ――" & vbCrLf & _
+                "☆☆☆☆☆☆☆☆☆☆☆☆☆☆☆☆☆☆☆☆☆" & vbCrLf & _
+            vbCrLf & "脱出に成功しました！！！！！！！！！！！！", _
+            vbOKOnly + vbInformation, "3DマップMacro"
+    End If
+End Sub
+
+'/*********************************************
+'/ コマンドボタンクリックで表示を切り替え（左）
+'/*********************************************
+Private Sub CmdBtn2_Click()
+
+    '//初期化チェック
+    If Not InitCheck Then Exit Sub
+    
+    '//方向を変更する
+    Select Case cos
+    Case "N"
+        cos = "W"
+    Case "W"
+        cos = "S"
+    Case "S"
+        cos = "E"
+    Case "E"
+        cos = "N"
+    Case Else
+        Exit Sub
+    End Select
+    
+    '//3D迷路表示エリアの更新
+    コマンドボタン迷路描画更新
+End Sub
+
+'/*********************************************
+'/ コマンドボタンクリックで表示を切り替え（右）
+'/*********************************************
+Private Sub CmdBtn3_Click()
+    
+    '//初期化チェック
+    If Not InitCheck Then Exit Sub
+    
+    '//方向を変更する
+    Select Case cos
+    Case "N"
+        cos = "E"
+    Case "E"
+        cos = "S"
+    Case "S"
+        cos = "W"
+    Case "W"
+        cos = "N"
+    Case Else
+        Exit Sub
+    End Select
+    
+    '//3D迷路表示エリアの更新
+    コマンドボタン迷路描画更新
+End Sub
+
+'/*********************************************
+'/ コマンドボタンクリック（初期化）
+'/*********************************************
+Private Sub CmdBtn4_Click()
+    シート初期化
+End Sub
+
+'/*********************************************
+'/ 全体マップの現在位置を更新
+'/*********************************************
+Private Sub 全体マップの現在位置更新()
+    '//1つ前の位置の描画更新
+    With Range(Cells(2 + old_gyoPos, D_MAPCELL + 6 + old_clmPos), Cells(2 + old_gyoPos, D_MAPCELL + 6 + old_clmPos))
+        .Value = CStr(allmap(old_gyoPos, old_clmPos))
+        .Font.Color = RGB(0, 0, 0)
+        .Font.Size = 8
+    End With
+    '//新しい位置に"●"をセット
+    With Range(Cells(2 + gyoPos, D_MAPCELL + 6 + clmPos), Cells(2 + gyoPos, D_MAPCELL + 6 + clmPos))
+        .Value = "●"
+        .Font.Color = RGB(255, 0, 0)
+        .Font.Size = 11
+    End With
+End Sub
+
+Private Sub CongratulationsView()
+    '//3D迷路エリアの背景色をエンディングモードに設定
+    Range("B2:BM8").Interior.Color = RGB(180, 255, 255)
+    Range("B9:BM14").Interior.Color = RGB(150, 255, 255)
+    Range("B15:BM19").Interior.Color = RGB(120, 255, 255)
+    Range("B20:BM23").Interior.Color = RGB(90, 255, 255)
+    Range("B24:BM26").Interior.Color = RGB(60, 255, 255)
+    Range("B27:BM28").Interior.Color = RGB(30, 255, 255)
+    Range("B29:BM29").Interior.Color = RGB(0, 255, 255)
+    Range("B30:BM37").Interior.Color = RGB(0, 240, 234)
+    Range("B38:BM65").Interior.Color = RGB(146, 208, 80)
+    
+    '//マップガイドエリアの中央通路の色変更
+    Range("BZ25:CA38").Interior.Color = RGB(146, 208, 80)
+    Range("A1").Select
+End Sub
