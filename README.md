@@ -40,4 +40,4 @@ Microsoft Office 2016
 パブリックドメイン(public domain)
 
 ## 掲載ブログ
-<http://pg-sample.sagami-ss.net/?eid=54>
+<https://pg-sample.sagami-ss.net/?eid=54>
